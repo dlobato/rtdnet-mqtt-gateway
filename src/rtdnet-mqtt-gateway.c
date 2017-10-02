@@ -1,17 +1,7 @@
 /*
-Copyright (c) 2009-2014 Roger Light <roger@atchoo.org>
 
-All rights reserved. This program and the accompanying materials
-are made available under the terms of the Eclipse Public License v1.0
-and Eclipse Distribution License v1.0 which accompany this distribution.
+Based on mosquitto_pub
 
-The Eclipse Public License is available at
-   http://www.eclipse.org/legal/epl-v10.html
-and the Eclipse Distribution License is available at
-  http://www.eclipse.org/org/documents/edl-v10.php.
-
-Contributors:
-   Roger Light - initial implementation and documentation.
 */
 
 #include <assert.h>
@@ -157,7 +147,6 @@ void my_message_callback(struct mosquitto *mosq, void *obj,
                          const struct mosquitto_message *message) {
   struct mosq_config *cfg;
   int i;
-  bool res;
   char *topic_name;
   char *token;
   char *save_ptr;
@@ -166,25 +155,13 @@ void my_message_callback(struct mosquitto *mosq, void *obj,
   assert(obj);
   cfg = (struct mosq_config *)obj;
 
-  if (message->retain && cfg->no_retain) return;
-  if (cfg->filter_outs) {
-    for (i = 0; i < cfg->filter_out_count; i++) {
-      mosquitto_topic_matches_sub(cfg->filter_outs[i], message->topic, &res);
-      if (res) return;
-    }
-  }
-
-  if (cfg->verbose) {
+  if (cfg->debug) {
     if (message->payloadlen) {
       printf("%s ", message->topic);
       fwrite(message->payload, 1, message->payloadlen, stdout);
-      if (cfg->eol) {
-        printf("\n");
-      }
+      printf("\n");
     } else {
-      if (cfg->eol) {
-        printf("%s (null)\n", message->topic);
-      }
+      printf("%s (null)\n", message->topic);
     }
     fflush(stdout);
   }
@@ -323,13 +300,8 @@ void print_usage(void) {
   printf("rtdnet-mqtt-gateway version %s running on libmosquitto %d.%d.%d.\n\n",
          VERSION, major, minor, revision);
   printf(
-      "Usage: rtdnet-mqtt-gateway [-h host] [-k keepalive] [-p port] [-q qos] "
-      "[-r] {-f file | -l | -n | -m message} -t topic\n");
-#ifdef WITH_SRV
-  printf("                     [-A bind_address] [-S]\n");
-#else
+      "Usage: rtdnet-mqtt-gateway [-h host] [-k keepalive] [-p port] [-q qos] \n");
   printf("                     [-A bind_address]\n");
-#endif
   printf("                     [-i id] [-I id_prefix]\n");
   printf("                     [-d] [--quiet]\n");
   printf("                     [-M max_inflight]\n");
@@ -348,9 +320,6 @@ void print_usage(void) {
       "ciphers]]\n");
 #endif
 #endif
-#ifdef WITH_SOCKS
-  printf("                     [--proxy socks-url]\n");
-#endif
   printf("       rtdnet-mqtt-gateway --help\n\n");
   printf(
       " -A : bind the outgoing socket to this host/ip address. Use to control "
@@ -367,16 +336,11 @@ void print_usage(void) {
   printf("      broker is using the clientid_prefixes option.\n");
   printf(" -k : keep alive in seconds for this client. Defaults to 60.\n");
   printf(" -M : the maximum inflight messages for QoS 1/2..\n");
-  printf(" -n : send a null (zero length) message.\n");
   printf(" -p : network port to connect to. Defaults to 1883.\n");
   printf(" -P : provide a password (requires MQTT 3.1 broker)\n");
   printf(
       " -q : quality of service level to use for all messages. Defaults to "
       "0.\n");
-  printf(" -r : message should be retained.\n");
-#ifdef WITH_SRV
-  printf(" -S : use SRV lookups to determine which host to connect to.\n");
-#endif
   printf(" -u : provide a username (requires MQTT 3.1 broker)\n");
   printf(
       " -V : specify the version of the MQTT protocol to use when "
@@ -431,13 +395,6 @@ void print_usage(void) {
   printf(" --psk-identity : client identity string for TLS-PSK mode.\n");
 #endif
 #endif
-#ifdef WITH_SOCKS
-  printf(" --proxy : SOCKS5 proxy URL of the form:\n");
-  printf("           socks5h://[username[:password]@]hostname[:port]\n");
-  printf(
-      "           Only \"none\" and \"username\" authentication is "
-      "supported.\n");
-#endif
   printf("\nSee http://mosquitto.org/ for more information.\n\n");
 }
 
@@ -460,7 +417,7 @@ int main(int argc, char *argv[]) {
   }
 
   memset(&cfg, 0, sizeof(struct mosq_config));
-  rc = client_config_load(&cfg, CLIENT_PUB, argc, argv);
+  rc = client_config_load(&cfg, argc, argv);
   if (rc) {
     client_config_cleanup(&cfg);
     if (rc == 2) {

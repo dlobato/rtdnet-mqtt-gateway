@@ -1,4 +1,8 @@
 /*
+
+Modified for project rtdnet-mqtt-gateway
+
+
 Copyright (c) 2014 Roger Light <roger@atchoo.org>
 
 All rights reserved. This program and the accompanying materials
@@ -31,7 +35,7 @@ Contributors:
 #include <mosquitto.h>
 #include "client_shared.h"
 
-static int client_config_line_proc(struct mosq_config *cfg, int pub_or_sub, int argc, char *argv[]);
+static int client_config_line_proc(struct mosq_config *cfg, int argc, char *argv[]);
 
 void init_config(struct mosq_config *cfg)
 {
@@ -39,20 +43,14 @@ void init_config(struct mosq_config *cfg)
 	cfg->port = 1883;
 	cfg->max_inflight = 20;
 	cfg->keepalive = 60;
-	cfg->clean_session = true;
-	cfg->eol = true;
 	cfg->protocol_version = MQTT_PROTOCOL_V31;
 }
 
 void client_config_cleanup(struct mosq_config *cfg)
 {
-	int i;
 	free(cfg->id);
 	free(cfg->id_prefix);
 	free(cfg->host);
-	free(cfg->file_input);
-	free(cfg->message);
-	free(cfg->topic);
 	free(cfg->bind_address);
 	free(cfg->username);
 	free(cfg->password);
@@ -70,134 +68,16 @@ void client_config_cleanup(struct mosq_config *cfg)
 	free(cfg->psk_identity);
 #  endif
 #endif
-	if(cfg->topics){
-		for(i=0; i<cfg->topic_count; i++){
-			free(cfg->topics[i]);
-		}
-		free(cfg->topics);
-	}
-	if(cfg->filter_outs){
-		for(i=0; i<cfg->filter_out_count; i++){
-			free(cfg->filter_outs[i]);
-		}
-		free(cfg->filter_outs);
-	}
-#ifdef WITH_SOCKS
-	free(cfg->socks5_host);
-	free(cfg->socks5_username);
-	free(cfg->socks5_password);
-#endif
 }
 
-int client_config_load(struct mosq_config *cfg, int pub_or_sub, int argc, char *argv[])
+int client_config_load(struct mosq_config *cfg, int argc, char *argv[])
 {
 	int rc;
-	FILE *fptr;
-	char line[1024];
-	int count;
-	char *loc = NULL;
-	int len;
-	char *args[3];
-
-#ifndef WIN32
-	char *env;
-#else
-	char env[1024];
-#endif
-	args[0] = NULL;
 
 	init_config(cfg);
 
-	/* Default config file */
-#ifndef WIN32
-	env = getenv("XDG_CONFIG_HOME");
-	if(env){
-		len = strlen(env) + strlen("/mosquitto_pub") + 1;
-		loc = malloc(len);
-		if(!loc){
-			fprintf(stderr, "Error: Out of memory.\n");
-			return 1;
-		}
-		if(pub_or_sub == CLIENT_PUB){
-			snprintf(loc, len, "%s/mosquitto_pub", env);
-		}else{
-			snprintf(loc, len, "%s/mosquitto_sub", env);
-		}
-		loc[len-1] = '\0';
-	}else{
-		env = getenv("HOME");
-		if(env){
-			len = strlen(env) + strlen("/.config/mosquitto_pub") + 1;
-			loc = malloc(len);
-			if(!loc){
-				fprintf(stderr, "Error: Out of memory.\n");
-				return 1;
-			}
-			if(pub_or_sub == CLIENT_PUB){
-				snprintf(loc, len, "%s/.config/mosquitto_pub", env);
-			}else{
-				snprintf(loc, len, "%s/.config/mosquitto_sub", env);
-			}
-			loc[len-1] = '\0';
-		}else{
-			fprintf(stderr, "Warning: Unable to locate configuration directory, default config not loaded.\n");
-		}
-	}
-
-#else
-	rc = GetEnvironmentVariable("USERPROFILE", env, 1024);
-	if(rc > 0 && rc < 1024){
-		len = strlen(env) + strlen("\\mosquitto_pub.conf") + 1;
-		loc = malloc(len);
-		if(!loc){
-			fprintf(stderr, "Error: Out of memory.\n");
-			return 1;
-		}
-		if(pub_or_sub == CLIENT_PUB){
-			snprintf(loc, len, "%s\\mosquitto_pub.conf", env);
-		}else{
-			snprintf(loc, len, "%s\\mosquitto_sub.conf", env);
-		}
-		loc[len-1] = '\0';
-	}else{
-		fprintf(stderr, "Warning: Unable to locate configuration directory, default config not loaded.\n");
-	}
-#endif
-
-	if(loc){
-		fptr = fopen(loc, "rt");
-		if(fptr){
-			while(fgets(line, 1024, fptr)){
-				if(line[0] == '#') continue; /* Comments */
-
-				while(line[strlen(line)-1] == 10 || line[strlen(line)-1] == 13){
-					line[strlen(line)-1] = 0;
-				}
-				/* All offset by one "args" here, because real argc/argv has
-				 * program name as the first entry. */
-				args[1] = strtok(line, " ");
-				if(args[1]){
-					args[2] = strtok(NULL, " ");
-					if(args[2]){
-						count = 3;
-					}else{
-						count = 2;
-					}
-					rc = client_config_line_proc(cfg, pub_or_sub, count, args);
-					if(rc){
-						fclose(fptr);
-						free(loc);
-						return rc;
-					}
-				}
-			}
-			fclose(fptr);
-		}
-		free(loc);
-	}
-
 	/* Deal with real argc/argv */
-	rc = client_config_line_proc(cfg, pub_or_sub, argc, argv);
+	rc = client_config_line_proc(cfg, argc, argv);
 	if(rc) return rc;
 
 	if(cfg->will_payload && !cfg->will_topic){
@@ -228,17 +108,6 @@ int client_config_load(struct mosq_config *cfg, int pub_or_sub, int argc, char *
 	}
 #endif
 
-	if(pub_or_sub == CLIENT_SUB){
-		if(cfg->clean_session == false && (cfg->id_prefix || !cfg->id)){
-			if(!cfg->quiet) fprintf(stderr, "Error: You must provide a client id if you are using the -c option.\n");
-			return 1;
-		}
-		if(cfg->topic_count == 0){
-			if(!cfg->quiet) fprintf(stderr, "Error: You must specify a topic to subscribe to.\n");
-			return 1;
-		}
-	}
-
 	if(!cfg->host){
 		cfg->host = "localhost";
 	}
@@ -246,7 +115,7 @@ int client_config_load(struct mosq_config *cfg, int pub_or_sub, int argc, char *
 }
 
 /* Process a tokenised single line from a file or set of real argc/argv */
-int client_config_line_proc(struct mosq_config *cfg, int pub_or_sub, int argc, char *argv[])
+int client_config_line_proc(struct mosq_config *cfg, int argc, char *argv[])
 {
 	int i;
 
@@ -305,39 +174,8 @@ int client_config_line_proc(struct mosq_config *cfg, int pub_or_sub, int argc, c
 			}
 			i++;
 #endif
-		}else if(!strcmp(argv[i], "-C")){
-			if(pub_or_sub == CLIENT_PUB){
-				goto unknown_option;
-			}else{
-				if(i==argc-1){
-					fprintf(stderr, "Error: -C argument given but no count specified.\n\n");
-					return 1;
-				}else{
-					cfg->msg_count = atoi(argv[i+1]);
-					if(cfg->msg_count < 1){
-						fprintf(stderr, "Error: Invalid message count \"%d\".\n\n", cfg->msg_count);
-						return 1;
-					}
-				}
-				i++;
-			}
 		}else if(!strcmp(argv[i], "-d") || !strcmp(argv[i], "--debug")){
 			cfg->debug = true;
-		}else if(!strcmp(argv[i], "-f") || !strcmp(argv[i], "--file")){
-			if(pub_or_sub == CLIENT_SUB){
-				goto unknown_option;
-			}
-			if(cfg->pub_mode != MSGMODE_NONE){
-				fprintf(stderr, "Error: Only one type of message can be sent at once.\n\n");
-				return 1;
-			}else if(i==argc-1){
-				fprintf(stderr, "Error: -f argument given but no file specified.\n\n");
-				return 1;
-			}else{
-				cfg->pub_mode = MSGMODE_FILE;
-				cfg->file_input = strdup(argv[i+1]);
-			}
-			i++;
 		}else if(!strcmp(argv[i], "--help")){
 			return 2;
 		}else if(!strcmp(argv[i], "-h") || !strcmp(argv[i], "--host")){
@@ -398,32 +236,6 @@ int client_config_line_proc(struct mosq_config *cfg, int pub_or_sub, int argc, c
 			}
 			i++;
 #endif
-		}else if(!strcmp(argv[i], "-l") || !strcmp(argv[i], "--stdin-line")){
-			if(pub_or_sub == CLIENT_SUB){
-				goto unknown_option;
-			}
-			if(cfg->pub_mode != MSGMODE_NONE){
-				fprintf(stderr, "Error: Only one type of message can be sent at once.\n\n");
-				return 1;
-			}else{
-				cfg->pub_mode = MSGMODE_STDIN_LINE;
-			}
-		}else if(!strcmp(argv[i], "-m") || !strcmp(argv[i], "--message")){
-			if(pub_or_sub == CLIENT_SUB){
-				goto unknown_option;
-			}
-			if(cfg->pub_mode != MSGMODE_NONE){
-				fprintf(stderr, "Error: Only one type of message can be sent at once.\n\n");
-				return 1;
-			}else if(i==argc-1){
-				fprintf(stderr, "Error: -m argument given but no message specified.\n\n");
-				return 1;
-			}else{
-				cfg->message = strdup(argv[i+1]);
-				cfg->msglen = strlen(cfg->message);
-				cfg->pub_mode = MSGMODE_CMD;
-			}
-			i++;
 		}else if(!strcmp(argv[i], "-M")){
 			if(i==argc-1){
 				fprintf(stderr, "Error: -M argument given but max_inflight not specified.\n\n");
@@ -432,16 +244,6 @@ int client_config_line_proc(struct mosq_config *cfg, int pub_or_sub, int argc, c
 				cfg->max_inflight = atoi(argv[i+1]);
 			}
 			i++;
-		}else if(!strcmp(argv[i], "-n") || !strcmp(argv[i], "--null-message")){
-			if(pub_or_sub == CLIENT_SUB){
-				goto unknown_option;
-			}
-			if(cfg->pub_mode != MSGMODE_NONE){
-				fprintf(stderr, "Error: Only one type of message can be sent at once.\n\n");
-				return 1;
-			}else{
-				cfg->pub_mode = MSGMODE_NULL;
-			}
 		}else if(!strcmp(argv[i], "-V") || !strcmp(argv[i], "--protocol-version")){
 			if(i==argc-1){
 				fprintf(stderr, "Error: --protocol-version argument given but no version specified.\n\n");
@@ -457,18 +259,6 @@ int client_config_line_proc(struct mosq_config *cfg, int pub_or_sub, int argc, c
 				}
 				i++;
 			}
-#ifdef WITH_SOCKS
-		}else if(!strcmp(argv[i], "--proxy")){
-			if(i==argc-1){
-				fprintf(stderr, "Error: --proxy argument given but no proxy url specified.\n\n");
-				return 1;
-			}else{
-				if(mosquitto__parse_socks_url(cfg, argv[i+1])){
-					return 1;
-				}
-				i++;
-			}
-#endif
 #ifdef WITH_TLS_PSK
 		}else if(!strcmp(argv[i], "--psk")){
 			if(i==argc-1){
@@ -501,64 +291,6 @@ int client_config_line_proc(struct mosq_config *cfg, int pub_or_sub, int argc, c
 			i++;
 		}else if(!strcmp(argv[i], "--quiet")){
 			cfg->quiet = true;
-		}else if(!strcmp(argv[i], "-r") || !strcmp(argv[i], "--retain")){
-			if(pub_or_sub == CLIENT_SUB){
-				goto unknown_option;
-			}
-			cfg->retain = 1;
-		}else if(!strcmp(argv[i], "-s") || !strcmp(argv[i], "--stdin-file")){
-			if(pub_or_sub == CLIENT_SUB){
-				goto unknown_option;
-			}
-			if(cfg->pub_mode != MSGMODE_NONE){
-				fprintf(stderr, "Error: Only one type of message can be sent at once.\n\n");
-				return 1;
-			}else{ 
-				cfg->pub_mode = MSGMODE_STDIN_FILE;
-			}
-#ifdef WITH_SRV
-		}else if(!strcmp(argv[i], "-S")){
-			cfg->use_srv = true;
-#endif
-		}else if(!strcmp(argv[i], "-t") || !strcmp(argv[i], "--topic")){
-			if(i==argc-1){
-				fprintf(stderr, "Error: -t argument given but no topic specified.\n\n");
-				return 1;
-			}else{
-				if(pub_or_sub == CLIENT_PUB){
-					if(mosquitto_pub_topic_check(argv[i+1]) == MOSQ_ERR_INVAL){
-						fprintf(stderr, "Error: Invalid publish topic '%s', does it contain '+' or '#'?\n", argv[i+1]);
-						return 1;
-					}
-					cfg->topic = strdup(argv[i+1]);
-				}else{
-					if(mosquitto_sub_topic_check(argv[i+1]) == MOSQ_ERR_INVAL){
-						fprintf(stderr, "Error: Invalid subscription topic '%s', are all '+' and '#' wildcards correct?\n", argv[i+1]);
-						return 1;
-					}
-					cfg->topic_count++;
-					cfg->topics = realloc(cfg->topics, cfg->topic_count*sizeof(char *));
-					cfg->topics[cfg->topic_count-1] = strdup(argv[i+1]);
-				}
-				i++;
-			}
-		}else if(!strcmp(argv[i], "-T") || !strcmp(argv[i], "--filter-out")){
-			if(pub_or_sub == CLIENT_PUB){
-				goto unknown_option;
-			}
-			if(i==argc-1){
-				fprintf(stderr, "Error: -T argument given but no topic filter specified.\n\n");
-				return 1;
-			}else{
-				if(mosquitto_sub_topic_check(argv[i+1]) == MOSQ_ERR_INVAL){
-					fprintf(stderr, "Error: Invalid filter topic '%s', are all '+' and '#' wildcards correct?\n", argv[i+1]);
-					return 1;
-				}
-				cfg->filter_out_count++;
-				cfg->filter_outs = realloc(cfg->filter_outs, cfg->filter_out_count*sizeof(char *));
-				cfg->filter_outs[cfg->filter_out_count-1] = strdup(argv[i+1]);
-			}
-			i++;
 #ifdef WITH_TLS
 		}else if(!strcmp(argv[i], "--tls-version")){
 			if(i==argc-1){
@@ -620,26 +352,6 @@ int client_config_line_proc(struct mosq_config *cfg, int pub_or_sub, int argc, c
 				cfg->will_topic = strdup(argv[i+1]);
 			}
 			i++;
-		}else if(!strcmp(argv[i], "-c") || !strcmp(argv[i], "--disable-clean-session")){
-			if(pub_or_sub == CLIENT_PUB){
-				goto unknown_option;
-			}
-			cfg->clean_session = false;
-		}else if(!strcmp(argv[i], "-N")){
-			if(pub_or_sub == CLIENT_PUB){
-				goto unknown_option;
-			}
-			cfg->eol = false;
-		}else if(!strcmp(argv[i], "-R")){
-			if(pub_or_sub == CLIENT_PUB){
-				goto unknown_option;
-			}
-			cfg->no_retain = true;
-		}else if(!strcmp(argv[i], "-v") || !strcmp(argv[i], "--verbose")){
-			if(pub_or_sub == CLIENT_PUB){
-				goto unknown_option;
-			}
-			cfg->verbose = 1;
 		}else{
 			goto unknown_option;
 		}
@@ -763,199 +475,3 @@ int client_connect(struct mosquitto *mosq, struct mosq_config *cfg)
 	}
 	return MOSQ_ERR_SUCCESS;
 }
-
-#ifdef WITH_SOCKS
-/* Convert %25 -> %, %3a, %3A -> :, %40 -> @ */
-static int mosquitto__urldecode(char *str)
-{
-	int i, j;
-	int len;
-	if(!str) return 0;
-
-	if(!strchr(str, '%')) return 0;
-
-	len = strlen(str);
-	for(i=0; i<len; i++){
-		if(str[i] == '%'){
-			if(i+2 >= len){
-				return 1;
-			}
-			if(str[i+1] == '2' && str[i+2] == '5'){
-				str[i] = '%';
-				len -= 2;
-				for(j=i+1; j<len; j++){
-					str[j] = str[j+2];
-				}
-				str[j] = '\0';
-			}else if(str[i+1] == '3' && (str[i+2] == 'A' || str[i+2] == 'a')){
-				str[i] = ':';
-				len -= 2;
-				for(j=i+1; j<len; j++){
-					str[j] = str[j+2];
-				}
-				str[j] = '\0';
-			}else if(str[i+1] == '4' && str[i+2] == '0'){
-				str[i] = ':';
-				len -= 2;
-				for(j=i+1; j<len; j++){
-					str[j] = str[j+2];
-				}
-				str[j] = '\0';
-			}else{
-				return 1;
-			}
-		}
-	}
-	return 0;
-}
-
-static int mosquitto__parse_socks_url(struct mosq_config *cfg, char *url)
-{
-	char *str;
-	int i;
-	char *username = NULL, *password = NULL, *host = NULL, *port = NULL;
-	char *username_or_host = NULL;
-	int start;
-	int len;
-	bool have_auth = false;
-	int port_int;
-
-	if(!strncmp(url, "socks5h://", strlen("socks5h://"))){
-		str = url + strlen("socks5h://");
-	}else{
-		fprintf(stderr, "Error: Unsupported proxy protocol: %s\n", url);
-		return 1;
-	}
-
-	// socks5h://username:password@host:1883
-	// socks5h://username:password@host
-	// socks5h://username@host:1883
-	// socks5h://username@host
-	// socks5h://host:1883
-	// socks5h://host
-
-	start = 0;
-	for(i=0; i<strlen(str); i++){
-		if(str[i] == ':'){
-			if(i == start){
-				goto cleanup;
-			}
-			if(have_auth){
-				/* Have already seen a @ , so this must be of form
-				 * socks5h://username[:password]@host:port */
-				if(host){
-					/* Already seen a host, must be malformed. */
-					goto cleanup;
-				}
-				len = i-start;
-				host = malloc(len + 1);
-				memcpy(host, &(str[start]), len);
-				host[len] = '\0';
-				start = i+1;
-			}else if(!username_or_host){
-				/* Haven't seen a @ before, so must be of form
-				 * socks5h://host:port or
-				 * socks5h://username:password@host[:port] */
-				len = i-start;
-				username_or_host = malloc(len + 1);
-				memcpy(username_or_host, &(str[start]), len);
-				username_or_host[len] = '\0';
-				start = i+1;
-			}
-		}else if(str[i] == '@'){
-			if(i == start){
-				goto cleanup;
-			}
-			have_auth = true;
-			if(username_or_host){
-				/* Must be of form socks5h://username:password@... */
-				username = username_or_host;
-				username_or_host = NULL;
-
-				len = i-start;
-				password = malloc(len + 1);
-				memcpy(password, &(str[start]), len);
-				password[len] = '\0';
-				start = i+1;
-			}else{
-				/* Haven't seen a : yet, so must be of form
-				 * socks5h://username@... */
-				if(username){
-					/* Already got a username, must be malformed. */
-					goto cleanup;
-				}
-				len = i-start;
-				username = malloc(len + 1);
-				memcpy(username, &(str[start]), len);
-				username[len] = '\0';
-				start = i+1;
-			}
-		}
-	}
-
-	/* Deal with remainder */
-	if(i > start){
-		len = i-start;
-		if(host){
-			/* Have already seen a @ , so this must be of form
-			 * socks5h://username[:password]@host:port */
-			port = malloc(len + 1);
-			memcpy(port, &(str[start]), len);
-			port[len] = '\0';
-		}else if(username_or_host){
-			/* Haven't seen a @ before, so must be of form
-			 * socks5h://host:port */
-			host = username_or_host;
-			username_or_host = NULL;
-			port = malloc(len + 1);
-			memcpy(port, &(str[start]), len);
-			port[len] = '\0';
-		}else{
-			host = malloc(len + 1);
-			if(!host){
-				fprintf(stderr, "Error: Out of memory.\n");
-				goto cleanup;
-			}
-			memcpy(host, &(str[start]), len);
-			host[len] = '\0';
-		}
-	}
-
-	if(!host){
-		fprintf(stderr, "Error: Invalid proxy.\n");
-		goto cleanup;
-	}
-
-	if(mosquitto__urldecode(username)){
-		goto cleanup;
-	}
-	if(mosquitto__urldecode(password)){
-		goto cleanup;
-	}
-	if(port){
-		port_int = atoi(port);
-		if(port_int < 1 || port_int > 65535){
-			fprintf(stderr, "Error: Invalid proxy port %d\n", port_int);
-			goto cleanup;
-		}
-		free(port);
-	}else{
-		port_int = 1080;
-	}
-
-	cfg->socks5_username = username;
-	cfg->socks5_password = password;
-	cfg->socks5_host = host;
-	cfg->socks5_port = port_int;
-
-	return 0;
-cleanup:
-	if(username_or_host) free(username_or_host);
-	if(username) free(username);
-	if(password) free(password);
-	if(host) free(host);
-	if(port) free(port);
-	return 1;
-}
-
-#endif

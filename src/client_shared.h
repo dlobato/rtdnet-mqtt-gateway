@@ -1,4 +1,8 @@
 /*
+
+Modified for project rtdnet-mqtt-gateway
+
+
 Copyright (c) 2014 Roger Light <roger@atchoo.org>
 
 All rights reserved. This program and the accompanying materials
@@ -19,16 +23,6 @@ Contributors:
 
 #include <stdio.h>
 
-/* pub_client.c modes */
-#define MSGMODE_NONE 0
-#define MSGMODE_CMD 1
-#define MSGMODE_STDIN_LINE 2
-#define MSGMODE_STDIN_FILE 3
-#define MSGMODE_FILE 4
-#define MSGMODE_NULL 5
-
-#define CLIENT_PUB 1
-#define CLIENT_SUB 2
 
 struct mosq_config {
 	char *id;
@@ -39,11 +33,6 @@ struct mosq_config {
 	int port;
 	int qos;
 	bool retain;
-	int pub_mode; /* pub */
-	char *file_input; /* pub */
-	char *message; /* pub */
-	long msglen; /* pub */
-	char *topic; /* pub */
 	char *bind_address;
 	bool debug;
 	bool quiet;
@@ -68,18 +57,9 @@ struct mosq_config {
 	char *psk_identity;
 #  endif
 #endif
-	bool clean_session; /* sub */
-	char **topics; /* sub */
-	int topic_count; /* sub */
-	bool no_retain; /* sub */
-	char **filter_outs; /* sub */
-	int filter_out_count; /* sub */
-	bool verbose; /* sub */
-	bool eol; /* sub */
-	int msg_count; /* sub */
 };
 
-int client_config_load(struct mosq_config *config, int pub_or_sub, int argc, char *argv[]);
+int client_config_load(struct mosq_config *config, int argc, char *argv[]);
 void client_config_cleanup(struct mosq_config *cfg);
 int client_opts_set(struct mosquitto *mosq, struct mosq_config *cfg);
 int client_id_generate(struct mosq_config *cfg, const char *id_base);
