@@ -3,7 +3,7 @@ TIMESTAMP:=$(shell date "+%F %T%z")
 
 UNAME:=$(shell uname -s)
 
-CFLAGS?=-Wall -ggdb -O2
+CFLAGS?=-Wall -ggdb -O2 -Wno-unused-result
 
 GATEWAY_LIBS:= -lmosquitto -lmodbus -ljson-c
 GATEWAY_CFLAGS:=${CFLAGS} ${CPPFLAGS} -DVERSION="\"${VERSION}\"" -D_GNU_SOURCE -DWITH_TLS -DWITH_TLS_PSK 

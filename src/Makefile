@@ -4,28 +4,31 @@ include ../config.mk
 
 all : rtdnet-mqtt-gateway rtdnet-status rtdnet-set-temp
 
-rtdnet-mqtt-gateway : rtdnet-mqtt-gateway.o client_shared.o rtdnet.o
+rtdnet-mqtt-gateway : gateway.o gateway_config.o mosquitto_helper.o rtdnet.o
 	${CROSS_COMPILE}${CC} $^ -o $@ ${GATEWAY_LDFLAGS} ${GATEWAY_LIBS}
 
-rtdnet-mqtt-gateway.o : rtdnet-mqtt-gateway.c
+gateway.o : gateway.c
 	${CROSS_COMPILE}${CC} -c $< -o $@ ${GATEWAY_CFLAGS}
 
-client_shared.o : client_shared.c client_shared.h
+gateway_config.o : gateway_config.c gateway_config.h
+	${CROSS_COMPILE}${CC} -c $< -o $@ ${GATEWAY_CFLAGS}
+
+mosquitto_helper.o : mosquitto_helper.c mosquitto_helper.h
 	${CROSS_COMPILE}${CC} -c $< -o $@ ${GATEWAY_CFLAGS}
 
 rtdnet.o : rtdnet.c
 	${CROSS_COMPILE}${CC} -c $< -o $@ ${GATEWAY_CFLAGS}
 
-rtdnet-status : rtdnet-status.o rtdnet.o
+rtdnet-status : status.o rtdnet.o
 	${CROSS_COMPILE}${CC} $^ -o $@ ${RTDNET_TOOLS_LDFLAGS} ${RTDNET_TOOLS_LIBS}
 
-rtdnet-status.o : rtdnet-status.c
+status.o : status.c
 	${CROSS_COMPILE}${CC} -c $< -o $@ ${RTDNET_TOOLS_CFLAGS}
 
-rtdnet-set-temp : rtdnet-set-temp.o rtdnet.o
+rtdnet-set-temp : settemp.o rtdnet.o
 	${CROSS_COMPILE}${CC} $^ -o $@ ${RTDNET_TOOLS_LDFLAGS} ${RTDNET_TOOLS_LIBS}
 
-rtdnet-set-temp.o : rtdnet-set-temp.c
+settemp.o : settemp.c
 	${CROSS_COMPILE}${CC} -c $< -o $@ ${RTDNET_TOOLS_CFLAGS}
 
 install : all
