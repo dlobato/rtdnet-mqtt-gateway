@@ -13,6 +13,7 @@ static int gateway_config_line_proc(struct gateway_config *cfg, int argc,
 
 void init_config(struct gateway_config *cfg) {
   memset(cfg, 0, sizeof(*cfg));
+  cfg->server_addr = 0;
   cfg->baud = 9600;
   cfg->parity = 'N';
   cfg->data_bit = 8;
@@ -21,6 +22,7 @@ void init_config(struct gateway_config *cfg) {
   cfg->max_inflight = 20;
   cfg->keepalive = 60;
   cfg->protocol_version = MQTT_PROTOCOL_V31;
+  cfg->publish_delay_s = 60;
 }
 
 void gateway_config_cleanup(struct gateway_config *cfg) {
@@ -86,6 +88,10 @@ int gateway_config_load(struct gateway_config *cfg, int argc, char *argv[]) {
     return 1;
   }
 #endif
+  if (cfg->server_addr == 0) {
+    fprintf(stderr, "Error: --server-address required.\n");
+    return 1;
+  }
 
   if (!cfg->device) {
     fprintf(stderr, "Error: --device required.\n");
@@ -364,6 +370,36 @@ int gateway_config_line_proc(struct gateway_config *cfg, int argc,
         cfg->device = strdup(argv[i + 1]);
       }
       i++;
+    } else if (!strcmp(argv[i], "--server-address")) {
+      if (i == argc - 1) {
+        fprintf(stderr,
+                "Error: --server-address argument given but no address "
+                "specified.\n\n");
+        return 1;
+      } else {
+        cfg->server_addr = atoi(argv[i + 1]);
+        if (cfg->server_addr < 0 || cfg->server_addr > 63) {
+          fprintf(stderr, "Error: Invalid server address %d.\n\n",
+                  cfg->server_addr);
+          return 1;
+        }
+      }
+      i++;
+    } else if (!strcmp(argv[i], "--publish-delay")) {
+      if (i == argc - 1) {
+        fprintf(stderr,
+                "Error: --publish-delay argument given but no delay "
+                "specified.\n\n");
+        return 1;
+      } else {
+        cfg->publish_delay_s = atoi(argv[i + 1]);
+        if (cfg->publish_delay_s < 0) {
+          fprintf(stderr, "Error: Invalid publish delay %d.\n\n",
+                  cfg->server_addr);
+          return 1;
+        }
+      }
+      i++;
     } else {
       goto unknown_option;
     }
@@ -390,6 +426,7 @@ void gateway_config_usage(void) {
   printf("                     [-d]\n");
   printf("                     [-M max_inflight]\n");
   printf("                     [-u username [-P password]]\n");
+  printf("                     [--server-address address]\n");
   printf("                     [--device device]\n");
   printf("                     [--will-topic [--will-payload payload] [--will-qos qos] [--will-retain]]\n");
 #ifdef WITH_TLS
@@ -414,7 +451,8 @@ void gateway_config_usage(void) {
   printf(" -V : specify the version of the MQTT protocol to use when connecting.\n");
   printf("      Can be mqttv31 or mqttv311. Defaults to mqttv31.\n");
   printf(" --help : display this message.\n");
-  printf(" --device device : serial port device.\n"); 
+  printf(" --server-address : modbus address for server device [0-63].\n");
+  printf(" --device device : serial port device.\n");
   printf(" --will-payload : payload for the client Will, which is sent by the broker in case of\n");
   printf("                  unexpected disconnection. If not given and will-topic is set, a zero\n");
   printf("                  length message will be sent.\n");
@@ -440,6 +478,7 @@ void gateway_config_usage(void) {
   printf(" --psk-identity : client identity string for TLS-PSK mode.\n");
 #endif
 #endif
+  printf(" --publish-delay delay : delay in seconds between rtdnet status updates.\n");
   printf("\nSee http://mosquitto.org/ for more information.\n\n");
 }
 // clang-format on

@@ -10,6 +10,7 @@ extern "C" {
 
 struct gateway_config {
   /* rtdnet */
+  int server_addr;
   char* device;
   int baud;
   char parity;
@@ -46,6 +47,8 @@ struct gateway_config {
   char *psk_identity;
 #endif
 #endif
+  /* other */
+  int publish_delay_s; //delay between state publish in seconds
 };
 
 int gateway_config_load(struct gateway_config *config, int argc, char *argv[]);

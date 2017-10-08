@@ -62,7 +62,7 @@ enum unit_registers1_addr_offset {
 typedef struct _rtdnet rtdnet_t;
 
 rtdnet_t* rtdnet_new(int addr, const char* device, int baud, char parity,
-                     int data_bit, int stop_bit);
+                     int data_bit, int stop_bit, int debug);
 
 const char *rtdnet_strerror(int errnum);
 

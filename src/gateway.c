@@ -26,10 +26,10 @@ Based on mosquitto_pub
 #include "mosquitto_helper.h"
 #include "rtdnet.h"
 
-#define STATUS_CONNECTING 0
-#define STATUS_CONNACK_RECVD 1
-
-#define SERVER_ADDRESS 1
+typedef enum status {
+  STATUS_CONNECTING,
+  STATUS_CONNACK_RECVD
+} status_t;
 
 typedef int (*rtdnet_write_register_f)(rtdnet_t *ctx, uint16_t new_value);
 typedef int (*to_mqtt_payload_f)(uint16_t value, char *payload,
@@ -87,7 +87,7 @@ const char *GROUP_TOPIC_PREFIX = "group";
 const char *SET_TOPIC_PREFIX = "set";
 const char *SET_TOPIC_VALUE_FIELD = "value";
 
-static int status = STATUS_CONNECTING;
+static status_t status = STATUS_CONNECTING;
 
 int int_to_mqtt_payload(uint16_t value, char *payload, int payload_max_size) {
   return snprintf(payload, payload_max_size - 1, "{\"value\": %u}",
@@ -216,7 +216,7 @@ void my_message_callback(struct mosquitto *mosq, void *obj,
           if (json_object_object_get_ex(jobj, SET_TOPIC_VALUE_FIELD, &field)) {
             int16_t value = json_object_get_int(field);
             rc = unit_control_topics[i].set(ctx->rtdnet_ctx, value);
-            if (rc) {
+            if (rc != 1) {
               fprintf(stderr, "Error setting unit control register: %s\n",
               rtdnet_strerror(errno));
             }
@@ -328,8 +328,8 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  ctx.rtdnet_ctx = rtdnet_new(SERVER_ADDRESS, ctx.cfg.device, ctx.cfg.baud, ctx.cfg.parity,
-    ctx.cfg.data_bit, ctx.cfg.stop_bit);
+  ctx.rtdnet_ctx = rtdnet_new(ctx.cfg.server_addr, ctx.cfg.device, ctx.cfg.baud, ctx.cfg.parity,
+    ctx.cfg.data_bit, ctx.cfg.stop_bit, ctx.cfg.debug);
   if (ctx.rtdnet_ctx == NULL) {
     fprintf(stderr, "Unable to allocate rtdnet context: %s\n",
             rtdnet_strerror(errno));
@@ -375,7 +375,7 @@ int main(int argc, char *argv[]) {
     }
 
     if (status == STATUS_CONNACK_RECVD &&
-        ((now.tv_sec - last_publish.tv_sec) > 10)) {
+        ((now.tv_sec - last_publish.tv_sec) > ctx.cfg.publish_delay_s)) {
       // get unit-control registers to publish them
       rc = rtdnet_read_unit_control_registers(ctx.rtdnet_ctx, unit_control_regs);
       if (rc != UNIT_CONTROL_REGISTERS_MAX) {

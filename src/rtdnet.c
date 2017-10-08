@@ -8,7 +8,7 @@ struct _rtdnet {
 };
 
 rtdnet_t* rtdnet_new(int addr, const char* device, int baud, char parity,
-                     int data_bit, int stop_bit) {
+                     int data_bit, int stop_bit, int debug) {
   rtdnet_t* ctx = NULL;
 
   ctx = malloc(sizeof(*ctx));
@@ -24,7 +24,7 @@ rtdnet_t* rtdnet_new(int addr, const char* device, int baud, char parity,
     return NULL;
   }
 
-  modbus_set_debug(ctx->modbus_ctx, TRUE);
+  modbus_set_debug(ctx->modbus_ctx, debug);
   modbus_set_error_recovery(
       ctx->modbus_ctx,
       MODBUS_ERROR_RECOVERY_LINK | MODBUS_ERROR_RECOVERY_PROTOCOL);
