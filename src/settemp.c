@@ -4,6 +4,7 @@
 #include "rtdnet.h"
 
 #define SERVER_ADDRESS 1
+#define DEBUG_MODBUS 1
 
 void usage() { printf("Usage: rtdnet-set-temp temp-value(in [16-32])\n"); }
 
@@ -24,7 +25,7 @@ int main(int argc, char *argv[]) {
     return -1;
   }
 
-  ctx = rtdnet_new(SERVER_ADDRESS, "/dev/ttyUSB0", 9600, 'N', 8, 1);
+  ctx = rtdnet_new(SERVER_ADDRESS, "/dev/ttyUSB0", 9600, 'N', 8, 1, DEBUG_MODBUS);
   if (ctx == NULL) {
     fprintf(stderr, "Unable to allocate rtdnet context: %s\n",
             rtdnet_strerror(errno));

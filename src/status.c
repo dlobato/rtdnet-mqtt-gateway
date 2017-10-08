@@ -3,6 +3,7 @@
 #include "rtdnet.h"
 
 #define SERVER_ADDRESS 1
+#define DEBUG_MODBUS 1
 
 const char* unit_control_regs_names[UNIT_CONTROL_REGISTERS_MAX] = {
     "SETPOINT", "FANSPEED", "MODE", "LOUVRE", "ONOFF",
@@ -29,7 +30,7 @@ int main(int argc, char* argv[]) {
   uint16_t group_regs1[GROUP_REGISTERS1_MAX] = {0};
   uint16_t unit_regs1[UNIT_REGISTERS1_MAX] = {0};
 
-  ctx = rtdnet_new(SERVER_ADDRESS, "/dev/ttyUSB0", 9600, 'N', 8, 1);
+  ctx = rtdnet_new(SERVER_ADDRESS, "/dev/ttyUSB0", 9600, 'N', 8, 1, DEBUG_MODBUS);
   if (ctx == NULL) {
     fprintf(stderr, "Unable to allocate rtdnet context: %s\n", rtdnet_strerror(errno));
     return -1;
