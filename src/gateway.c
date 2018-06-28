@@ -28,7 +28,8 @@ Based on mosquitto_pub
 
 typedef enum status {
   STATUS_CONNECTING,
-  STATUS_CONNACK_RECVD
+  STATUS_READY,
+  STATUS_FORCE_PUBLISH
 } status_t;
 
 typedef int (*rtdnet_write_register_f)(rtdnet_t *ctx, uint16_t new_value);
@@ -109,7 +110,7 @@ void my_connect_callback(struct mosquitto *mosq, void *obj, int rc) {
   ctx = (struct gateway_ctx *)obj;
 
   if (0 == rc) {
-    status = STATUS_CONNACK_RECVD;
+    status = STATUS_READY;
     // subscribe unit control set topics
     for (i = 0; i < UNIT_CONTROL_TOPICS_COUNT; i++) {
       if (!unit_control_topics[i].set) {
@@ -223,6 +224,7 @@ void my_message_callback(struct mosquitto *mosq, void *obj,
             //printf("set %s to %d\n", unit_control_topics[i].name, value);
           }
           json_object_put(jobj);
+          status = STATUS_FORCE_PUBLISH;
 
           break;
         }
@@ -269,7 +271,7 @@ void publish_unit_control_registers(struct mosquitto *mosq,
 
       continue;
     }
-    mosquitto_publish(mosq, NULL, topic, n, payload, 0, false);
+    mosquitto_publish(mosq, NULL, topic, n, payload, 0, true);
   }
 }
 
@@ -302,7 +304,7 @@ void publish_group_registers(struct mosquitto *mosq, struct gateway_config *cfg,
 
       continue;
     }
-    mosquitto_publish(mosq, NULL, topic, n, payload, 0, false);
+    mosquitto_publish(mosq, NULL, topic, n, payload, 0, true);
   }
 }
 
@@ -369,13 +371,14 @@ int main(int argc, char *argv[]) {
   if (rc) return rc;
 
   do {
-    if (clock_gettime(CLOCK_REALTIME, &now) == -1) {
+    if (clock_gettime(CLOCK_MONOTONIC, &now) == -1) {
       fprintf(stderr, "Error getting clock: %s\n", strerror(rc));
       return -1;
     }
 
-    if (status == STATUS_CONNACK_RECVD &&
-        ((now.tv_sec - last_publish.tv_sec) > ctx.cfg.publish_delay_s)) {
+    if (status == STATUS_FORCE_PUBLISH ||
+        (status == STATUS_READY &&
+         ((now.tv_sec - last_publish.tv_sec) > ctx.cfg.publish_delay_s))) {
       // get unit-control registers to publish them
       rc = rtdnet_read_unit_control_registers(ctx.rtdnet_ctx, unit_control_regs);
       if (rc != UNIT_CONTROL_REGISTERS_MAX) {
@@ -394,6 +397,7 @@ int main(int argc, char *argv[]) {
       }
       publish_group_registers(mosq, &ctx.cfg, group_regs1);
       last_publish = now;
+      status = STATUS_READY;
     }
     rc = mosquitto_loop(mosq, -1, 1);
   } while (rc == MOSQ_ERR_SUCCESS);
