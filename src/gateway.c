@@ -18,10 +18,10 @@ Based on mosquitto_pub
 #define snprintf sprintf_s
 #endif
 
-#include <json-c/json.h>
 #include <modbus/modbus.h>
 #include <mosquitto.h>
 #include <time.h>
+#include <inttypes.h>
 #include "gateway_config.h"
 #include "mosquitto_helper.h"
 #include "rtdnet.h"
@@ -82,22 +82,23 @@ const size_t GROUP_TOPICS_COUNT =
     sizeof(group_topics) / sizeof(struct topic_definition);
 
 const size_t TOPIC_MAX_SIZE = 64;
-const size_t PUBLISH_PAYLOAD_MAX_SIZE = 64;
+const size_t PAYLOAD_VALUE_BUFFER_SIZE = 8;//all values are uint16_t
+const char *STATUS_TOPIC_PREFIX = "status";
+const char *STATUS_ONLINE = "online";
+const char *STATUS_OFFLINE = "offline";
 const char *UNIT_CONTROL_TOPIC_PREFIX = "unit-control";
 const char *GROUP_TOPIC_PREFIX = "group";
 const char *SET_TOPIC_PREFIX = "set";
-const char *SET_TOPIC_VALUE_FIELD = "value";
 
 static status_t status = STATUS_CONNECTING;
 
 int int_to_mqtt_payload(uint16_t value, char *payload, int payload_max_size) {
-  return snprintf(payload, payload_max_size - 1, "{\"value\": %u}",
-                  (unsigned int)value);
+  return snprintf(payload, payload_max_size - 1, "%" PRIu16, value);
 }
 
 int int100_to_mqtt_payload(uint16_t value, char *payload,
                            int payload_max_size) {
-  return snprintf(payload, payload_max_size - 1, "{\"value\": %.2f}",
+  return snprintf(payload, payload_max_size - 1, "%.2f",
                   (float)(value / 100.0));
 }
 
@@ -117,10 +118,10 @@ void my_connect_callback(struct mosquitto *mosq, void *obj, int rc) {
         continue;
       }
 
-      n = snprintf(topic, TOPIC_MAX_SIZE - 1, "%s/%s/%s/%s", ctx->cfg.id,
+      n = snprintf(topic, sizeof(topic), "%s/%s/%s/%s", ctx->cfg.id,
                    SET_TOPIC_PREFIX, UNIT_CONTROL_TOPIC_PREFIX,
                    unit_control_topics[i].name);
-      if (n < 0 || n > (sizeof(topic) - 1)) {
+      if (n < 0 || n > sizeof(topic)) {
         fprintf(stderr,
                 "can't generate topic for %s register(too long?). Ignored\n",
                 unit_control_topics[i].name);
@@ -130,6 +131,9 @@ void my_connect_callback(struct mosquitto *mosq, void *obj, int rc) {
 
       mosquitto_subscribe(mosq, NULL, topic, ctx->cfg.qos);
     }
+
+    snprintf(topic, sizeof(topic), "%s/%s", ctx->cfg.id, STATUS_TOPIC_PREFIX);
+    mosquitto_publish(mosq, NULL, topic, strlen(STATUS_ONLINE), STATUS_ONLINE, 0, true);
   } else {
     fprintf(stderr, "%s\n", mosquitto_connack_string(rc));
   }
@@ -157,10 +161,10 @@ void my_message_callback(struct mosquitto *mosq, void *obj,
                          const struct mosquitto_message *message) {
   struct gateway_ctx *ctx;
   int i,rc;
-  char *topic_name;
+  char topic_name[TOPIC_MAX_SIZE];
+  char payload_buf[PAYLOAD_VALUE_BUFFER_SIZE];
   char *token;
   char *save_ptr;
-  struct json_object *jobj, *field;
 
   assert(obj);
   ctx = (struct gateway_ctx *)obj;
@@ -176,21 +180,31 @@ void my_message_callback(struct mosquitto *mosq, void *obj,
     fflush(stdout);
   }
 
+  if (strlen(message->topic) > (sizeof(topic_name) -1 )) {
+    fprintf(stderr, "Topic too big, ignored: topicn=%s\n", message->topic);
+    return;
+  }
+
+  if (message->payloadlen > (PAYLOAD_VALUE_BUFFER_SIZE - 1)) {
+    fprintf(stderr, "Payload too big, ignored: payloadlen=%d\n", message->payloadlen);
+    return;
+  }
+
   // split topic into parts to find out what it is requested
   // only clientId/set/* are considered valid (*=unit-control/[valid register])
-  topic_name = strndup(message->topic, TOPIC_MAX_SIZE);
+  strncpy(topic_name, message->topic, sizeof(topic_name));
 
   // match clientId
   token = strtok_r(topic_name, "/", &save_ptr);
   if (!token || (strncmp(ctx->cfg.id, token, strlen(ctx->cfg.id)) != 0)) {
-    goto my_message_callback_end;
+    return;
   }
 
   // match set
   token = strtok_r(0, "/", &save_ptr);
   if (!token ||
       (strncmp(SET_TOPIC_PREFIX, token, strlen(SET_TOPIC_PREFIX)) != 0)) {
-    goto my_message_callback_end;
+    return;
   }
 
   // match [unit-control]
@@ -201,39 +215,32 @@ void my_message_callback(struct mosquitto *mosq, void *obj,
                 strlen(UNIT_CONTROL_TOPIC_PREFIX)) == 0) {
       token = strtok_r(0, "/", &save_ptr);
       if (!token) {
-        goto my_message_callback_end;
+        return;
       }
       for (i = 0; i < UNIT_CONTROL_TOPICS_COUNT; i++) {
         if (strncmp(unit_control_topics[i].name, token,
                     strlen(unit_control_topics[i].name)) == 0) {
           if (!unit_control_topics[i].set) {
-            break;
+            return;
           }
 
-          jobj = json_tokener_parse(message->payload);
-          // printf("jobj from str:\n---\n%s\n---\n",
-          //        json_object_to_json_string_ext(
-          //            jobj, JSON_C_TO_STRING_SPACED | JSON_C_TO_STRING_PRETTY));
-          if (json_object_object_get_ex(jobj, SET_TOPIC_VALUE_FIELD, &field)) {
-            int16_t value = json_object_get_int(field);
+          memcpy(payload_buf, message->payload, message->payloadlen);
+          payload_buf[message->payloadlen] = '\0';
+          int16_t value;
+          if (sscanf(payload_buf, "%" SCNu16, &value) == 1) {
             rc = unit_control_topics[i].set(ctx->rtdnet_ctx, value);
             if (rc != 1) {
               fprintf(stderr, "Error setting unit control register: %s\n",
               rtdnet_strerror(errno));
             }
-            //printf("set %s to %d\n", unit_control_topics[i].name, value);
           }
-          json_object_put(jobj);
-          status = STATUS_FORCE_PUBLISH;
 
-          break;
+          status = STATUS_FORCE_PUBLISH;
+          return;
         }
       }
     }
   }
-
-my_message_callback_end:
-  free(topic_name);
 }
 
 void my_log_callback(struct mosquitto *mosq, void *obj, int level,
@@ -246,13 +253,13 @@ void publish_unit_control_registers(struct mosquitto *mosq,
                                     uint16_t *regs) {
   int i, n;
   char topic[TOPIC_MAX_SIZE];
-  char payload[PUBLISH_PAYLOAD_MAX_SIZE];
+  char payload[PAYLOAD_VALUE_BUFFER_SIZE];
 
   // unit-control
   for (i = 0; i < UNIT_CONTROL_TOPICS_COUNT; i++) {
-    n = snprintf(topic, sizeof(topic) - 1, "%s/%s/%s", cfg->id,
+    n = snprintf(topic, sizeof(topic), "%s/%s/%s", cfg->id,
                  UNIT_CONTROL_TOPIC_PREFIX, unit_control_topics[i].name);
-    if (n < 0 || n > (sizeof(topic) - 1)) {
+    if (n < 0 || n > sizeof(topic)) {
       fprintf(stderr,
               "can't generate topic for %s register(too long?). Ignored\n",
               unit_control_topics[i].name);
@@ -264,7 +271,7 @@ void publish_unit_control_registers(struct mosquitto *mosq,
     }
     n = unit_control_topics[i].to_mqtt_payload(
         regs[unit_control_topics[i].offset], payload, sizeof(payload));
-    if (n < 0 || n > (sizeof(payload) - 1)) {
+    if (n < 0 || n > sizeof(payload)) {
       fprintf(stderr,
               "can't generate payload for %s register(too long?). Ignored\n",
               unit_control_topics[i].name);
@@ -279,13 +286,13 @@ void publish_group_registers(struct mosquitto *mosq, struct gateway_config *cfg,
                              uint16_t *regs) {
   int i, n;
   char topic[TOPIC_MAX_SIZE];
-  char payload[PUBLISH_PAYLOAD_MAX_SIZE];
+  char payload[PAYLOAD_VALUE_BUFFER_SIZE];
 
   // group
   for (i = 0; i < GROUP_TOPICS_COUNT; i++) {
-    n = snprintf(topic, sizeof(topic) - 1, "%s/%s/%s", cfg->id,
+    n = snprintf(topic, sizeof(topic), "%s/%s/%s", cfg->id,
                  GROUP_TOPIC_PREFIX, group_topics[i].name);
-    if (n < 0 || n > (sizeof(topic) - 1)) {
+    if (n < 0 || n > sizeof(topic)) {
       fprintf(stderr,
               "can't generate topic for %s register(too long?). Ignored\n",
               group_topics[i].name);
@@ -297,7 +304,7 @@ void publish_group_registers(struct mosquitto *mosq, struct gateway_config *cfg,
     }
     n = group_topics[i].to_mqtt_payload(regs[group_topics[i].offset], payload,
                                         sizeof(payload));
-    if (n < 0 || n > (sizeof(payload) - 1)) {
+    if (n < 0 || n > sizeof(payload)) {
       fprintf(stderr,
               "can't generate payload for %s register(too long?). Ignored\n",
               group_topics[i].name);
@@ -313,6 +320,7 @@ int main(int argc, char *argv[]) {
   struct mosquitto *mosq = NULL;
   int rc;
   struct timespec last_publish = {0}, now;
+  char topic[TOPIC_MAX_SIZE];
 
   uint16_t unit_control_regs[UNIT_CONTROL_REGISTERS_MAX] = {0};
   uint16_t group_regs1[GROUP_REGISTERS1_MAX] = {0};
@@ -366,6 +374,8 @@ int main(int argc, char *argv[]) {
   mosquitto_connect_callback_set(mosq, my_connect_callback);
   // mosquitto_publish_callback_set(mosq, my_publish_callback);
   mosquitto_message_callback_set(mosq, my_message_callback);
+  snprintf(topic, sizeof(topic), "%s/%s", ctx.cfg.id, STATUS_TOPIC_PREFIX);
+  mosquitto_will_set(mosq, topic, strlen(STATUS_OFFLINE), STATUS_OFFLINE, 0, true);
 
   rc = client_connect(mosq, &ctx.cfg);
   if (rc) return rc;
