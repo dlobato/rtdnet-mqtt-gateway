@@ -1,0 +1,15 @@
+[Unit]
+Description=RTDNet MQTT Gateway deamon
+Documentation=https://github.com/dlobato/rtdnet-mqtt-gateway/blob/master/README.md
+After=network.target systemd-udevd.service
+
+[Service]
+EnvironmentFile=/etc/default/rtdnet-gateway
+ExecStart=/usr/local/bin/rtdnet-mqtt-gateway -h $BROKER_HOST -p $BROKER_PORT -u $BROKER_USER -P $BROKER_PASSWORD -i $ID --server-address $SERVER_ADDRESS --device $DEVICE
+ExecReload=/bin/kill -HUP $MAINPID
+KillMode=process
+Restart=on-failure
+RestartSec=42s
+
+[Install]
+WantedBy=multi-user.target
